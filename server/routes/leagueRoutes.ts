@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
-import { loadTournamentState, saveTournamentState, resetTournamentState, TournamentStateData } from '../dataStore';
+import { loadTournamentState, saveTournamentState, resetTournamentState, TournamentStateData } from '../dataStore.js';
 
 export const leagueRouter = Router();
 
