@@ -17,7 +17,7 @@ leagueRouter.get('/', async (_req: ExpressRequest, res: ExpressResponse) => {
 leagueRouter.post('/', async (req: ExpressRequest, res: ExpressResponse) => {
   try {
     const incomingState: TournamentStateData = req.body;
-    if (!incomingState || !Array.isArray(incomingState.players) || incomingState.players.length !== 10) {
+    if (!incomingState || !Array.isArray(incomingState.players) || incomingState.players.length !== 11) {
       return res.status(400).json({ success: false, message: 'فرمت داده‌های ارسالی نامعتبر است' });
     }
     const savedState = await saveTournamentState(incomingState);
