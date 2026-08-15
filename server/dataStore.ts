@@ -50,7 +50,7 @@ export interface TournamentStateData {
 
 const DEFAULT_PLAYERS: PlayerData[] = [
   { id: 'p1', name: 'آرش مکی', group: 'A', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'arash' },
-  { id: 'p2', name: 'علیرضا علی نژاد', group: 'A', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'alireza' },
+  { id: 'p2', name: 'مهدیار علیپور', group: 'A', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'mahdiar' },
   { id: 'p3', name: 'محمد ادیبی', group: 'A', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'adibi' },
   { id: 'p4', name: 'مهرداد خوش لفظ', group: 'A', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'mehrdad' },
   { id: 'p5', name: 'علی رشیدی', group: 'A', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'rashidi' },
@@ -79,8 +79,16 @@ export async function loadTournamentState(): Promise<TournamentStateData> {
     if (result?.statusCode === 200) {
       const parsed = JSON.parse(await new Response(result.stream).text());
       if (parsed?.players?.length === 10) {
-        memoryStore = parsed;
-        return parsed;
+        const migrated = {
+          ...parsed,
+          players: parsed.players.map((player: PlayerData) =>
+            player.id === 'p2' || player.name === 'علیرضا علی نژاد'
+              ? { ...player, id: 'p2', name: 'مهدیار علیپور', avatarSeed: 'mahdiar' }
+              : player
+          )
+        };
+        memoryStore = migrated;
+        return migrated;
       }
     }
   } catch (error) {
