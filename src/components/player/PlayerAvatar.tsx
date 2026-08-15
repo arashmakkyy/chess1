@@ -39,7 +39,7 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
         textColor: 'text-amber-400',
         title: 'شاه'
       };
-    } else if (cleanName.includes('علیرضا')) {
+    } else if (cleanName.includes('مهدیار')) {
       return {
         // Knight
         icon: (
