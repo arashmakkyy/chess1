@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Player, Match, GameResult } from '../types';
+import { Player, Match, GroupIdentifier } from '../types';
 
 /**
  * Formats a Gregorian date to Persian date string using built-in Intl API.
@@ -14,7 +14,7 @@ export function formatPersianDate(date: Date): { text: string; weekday: string }
     month: 'long',
     year: 'numeric'
   });
-  
+
   const weekdayFormatter = new Intl.DateTimeFormat('fa-IR', {
     weekday: 'long'
   });
@@ -41,16 +41,19 @@ export function getNextSunday(startDate: Date): Date {
 /**
  * Generates match calendar days skipping Friday.
  */
-export function generateMatchDates(startSunday: Date, totalMatches: number): Array<{ date: Date; weekdayStr: string; dateStr: string }> {
+export function generateMatchDates(
+  startSunday: Date,
+  totalMatches: number
+): Array<{ date: Date; weekdayStr: string; dateStr: string }> {
   const schedule: Array<{ date: Date; weekdayStr: string; dateStr: string }> = [];
-  let currentDate = new Date(startSunday);
+  const currentDate = new Date(startSunday);
   let matchesCount = 0;
 
   while (matchesCount < totalMatches) {
     const dayOfWeek = currentDate.getDay(); // 0 for Sunday, 5 for Friday, 6 for Saturday
-    
+
     if (dayOfWeek === 5) {
-      // It's Friday! Skip scheduling a match on Friday.
+      // Skip Friday (League Rest Day)
       currentDate.setDate(currentDate.getDate() + 1);
       continue;
     }
@@ -70,57 +73,76 @@ export function generateMatchDates(startSunday: Date, totalMatches: number): Arr
 }
 
 /**
- * Creates 12 matches for a double round-robin between 4 players.
- * Then shuffles them randomly so they are in an exciting order,
- * ensuring no player plays multiple matches on the same day (not possible anyway since we play 1 match/day).
- * Then schedules them on consecutive days starting Sunday, skipping Friday.
+ * Generates round-robin pairings for a list of players in a single group (1 leg, single round-robin).
+ * For 5 players: 5 * 4 / 2 = 10 matches.
  */
-export function createRoundRobinSchedule(players: Player[], startSunday: Date): Match[] {
-  if (players.length < 4) return [];
-
-  // Generate all 12 pairing combinations (double round-robin)
-  // Pairings:
-  // Leg 1 (6 matches)
-  const leg1Pairings: Array<[string, string]> = [
-    [players[0].id, players[1].id],
-    [players[2].id, players[3].id],
-    [players[0].id, players[2].id],
-    [players[1].id, players[3].id],
-    [players[0].id, players[3].id],
-    [players[1].id, players[2].id]
-  ];
-
-  // Leg 2 with reversed colors / home-away (6 matches)
-  const leg2Pairings: Array<[string, string]> = [
-    [players[1].id, players[0].id],
-    [players[3].id, players[2].id],
-    [players[2].id, players[0].id],
-    [players[3].id, players[1].id],
-    [players[3].id, players[0].id],
-    [players[2].id, players[1].id]
-  ];
-
-  // Combine and shuffle
-  const allPairings = [...leg1Pairings, ...leg2Pairings];
-  
-  // Shuffle algorithm
-  for (let i = allPairings.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [allPairings[i], allPairings[j]] = [allPairings[j], allPairings[i]];
+function generateGroupPairings(players: Player[]): Array<[string, string]> {
+  const pairings: Array<[string, string]> = [];
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      // Alternate white/black pieces based on indices for fairness
+      if ((i + j) % 2 === 0) {
+        pairings.push([players[i].id, players[j].id]);
+      } else {
+        pairings.push([players[j].id, players[i].id]);
+      }
+    }
   }
 
-  // Create match dates
-  const matchDates = generateMatchDates(startSunday, allPairings.length);
+  // Shuffle group pairings
+  for (let i = pairings.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pairings[i], pairings[j]] = [pairings[j], pairings[i]];
+  }
 
-  // Map pairings to Matches
-  return allPairings.map((pairing, index) => {
+  return pairings;
+}
+
+/**
+ * Creates single round-robin schedule for 2 groups (Group A and Group B).
+ * Interleaves matches between Group A and Group B to ensure balanced daily excitement.
+ */
+export function createTwoGroupSingleRoundRobinSchedule(
+  players: Player[],
+  startSunday: Date
+): Match[] {
+  const groupAPlayers = players.filter((p) => p.group === 'A');
+  const groupBPlayers = players.filter((p) => p.group === 'B');
+
+  const groupAPairings = generateGroupPairings(groupAPlayers);
+  const groupBPairings = generateGroupPairings(groupBPlayers);
+
+  // Interleave Group A and Group B matches: A, B, A, B, ...
+  const interleavedMatches: Array<{ p1: string; p2: string; group: GroupIdentifier }> = [];
+  const maxLen = Math.max(groupAPairings.length, groupBPairings.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    if (i < groupAPairings.length) {
+      interleavedMatches.push({
+        p1: groupAPairings[i][0],
+        p2: groupAPairings[i][1],
+        group: 'A'
+      });
+    }
+    if (i < groupBPairings.length) {
+      interleavedMatches.push({
+        p1: groupBPairings[i][0],
+        p2: groupBPairings[i][1],
+        group: 'B'
+      });
+    }
+  }
+
+  // Generate calendar dates for all 20 group matches
+  const matchDates = generateMatchDates(startSunday, interleavedMatches.length);
+
+  return interleavedMatches.map((item, index) => {
     const dateInfo = matchDates[index];
-    const isWent = leg1Pairings.some(leg => leg[0] === pairing[0] && leg[1] === pairing[1]);
-    const matchType = isWent ? 'went' : 'returned';
     return {
-      id: `match_${index + 1}`,
-      player1Id: pairing[0],
-      player2Id: pairing[1],
+      id: `match_${item.group}_${index + 1}`,
+      player1Id: item.p1,
+      player2Id: item.p2,
+      group: item.group,
       dayNumber: index + 1,
       dateStr: dateInfo.dateStr,
       weekdayStr: dateInfo.weekdayStr,
@@ -132,7 +154,7 @@ export function createRoundRobinSchedule(players: Player[], startSunday: Date): 
       p1Points: 0,
       p2Points: 0,
       isPlayoff: false,
-      matchType
+      matchType: 'group'
     };
   });
 }

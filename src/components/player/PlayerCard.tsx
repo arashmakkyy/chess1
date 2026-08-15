@@ -6,8 +6,9 @@
 import React from 'react';
 import { Player } from '../../types';
 import { PlayerAvatar } from './PlayerAvatar';
+import { GroupBadge } from './GroupBadge';
 import { Card } from '../common/Card';
-import { Award, Target, Hash } from 'lucide-react';
+import { Award, Target } from 'lucide-react';
 
 interface PlayerCardProps {
   player: Player;
@@ -15,11 +16,11 @@ interface PlayerCardProps {
 }
 
 export const PlayerCard: React.FC<PlayerCardProps> = ({ player, rank }) => {
-  const winRate = player.matchesPlayed > 0 
-    ? Math.round((player.matchesWon / player.matchesPlayed) * 100) 
-    : 0;
+  const winRate =
+    player.matchesPlayed > 0
+      ? Math.round((player.matchesWon / player.matchesPlayed) * 100)
+      : 0;
 
-  // Render a beautiful custom styled card based on rank
   const getRankStyle = (r: number) => {
     switch (r) {
       case 1:
@@ -42,7 +43,7 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, rank }) => {
       case 3:
         return <span className="text-xl">🥉</span>;
       default:
-        return <span className="font-mono text-slate-400 font-bold">#4</span>;
+        return <span className="font-mono text-slate-400 font-bold">#{r}</span>;
     }
   };
 
@@ -53,31 +54,40 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, rank }) => {
         {getRankBadge(rank)}
       </div>
 
-      <div className="flex flex-col items-center pt-2">
+      {/* Group badge */}
+      <div className="absolute top-4 right-4">
+        <GroupBadge group={player.group} />
+      </div>
+
+      <div className="flex flex-col items-center pt-5">
         <PlayerAvatar name={player.name} size="lg" className="mb-4" />
-        
-        <h3 className="text-lg font-bold text-slate-100 mb-1 group-hover:text-blue-300 transition-colors duration-300">
+
+        <h3 className="text-base font-bold text-slate-100 mb-1 group-hover:text-blue-300 transition-colors duration-300 text-center">
           {player.name}
         </h3>
-        
-        <div className="flex items-center gap-1.5 text-xs text-slate-300 mb-6 font-semibold">
+
+        <div className="flex items-center gap-1.5 text-xs text-slate-300 mb-5 font-semibold">
           <Award className="w-3.5 h-3.5 text-blue-400" />
-          <span>امتیاز لیگ: </span>
+          <span>امتیاز گروه: </span>
           <span className="text-blue-300 font-bold font-mono text-sm">{player.points}</span>
         </div>
 
         {/* Mini stats grid */}
-        <div className="grid grid-cols-3 gap-3 w-full bg-white/5 p-3 rounded-xl border border-white/10 backdrop-blur-sm">
+        <div className="grid grid-cols-3 gap-2 w-full bg-white/5 p-3 rounded-xl border border-white/10 backdrop-blur-sm text-center">
           <div className="flex flex-col items-center">
-            <span className="text-[10px] text-slate-400 font-medium font-sans">برد فیکسچر</span>
-            <span className="text-sm font-bold text-emerald-400 font-mono mt-0.5">{player.matchesWon}</span>
+            <span className="text-[10px] text-slate-400 font-medium">برد</span>
+            <span className="text-sm font-bold text-emerald-400 font-mono mt-0.5">
+              {player.matchesWon}
+            </span>
           </div>
           <div className="flex flex-col items-center border-x border-white/10">
-            <span className="text-[10px] text-slate-400 font-medium font-sans">باخت فیکسچر</span>
-            <span className="text-sm font-bold text-rose-400 font-mono mt-0.5">{player.matchesLost}</span>
+            <span className="text-[10px] text-slate-400 font-medium">باخت</span>
+            <span className="text-sm font-bold text-rose-400 font-mono mt-0.5">
+              {player.matchesLost}
+            </span>
           </div>
           <div className="flex flex-col items-center">
-            <span className="text-[10px] text-slate-400 font-medium font-sans">درصد برد</span>
+            <span className="text-[10px] text-slate-400 font-medium">درصد برد</span>
             <span className="text-sm font-bold text-slate-200 font-mono mt-0.5">{winRate}%</span>
           </div>
         </div>
@@ -86,12 +96,12 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, rank }) => {
         <div className="mt-4 w-full flex justify-between items-center text-xs text-slate-400 font-semibold px-1">
           <div className="flex items-center gap-1">
             <Target className="w-3.5 h-3.5 text-slate-400" />
-            <span>کل دست‌ها: {player.gamesWon + player.gamesLost + player.gamesDrew}</span>
+            <span>کل بازی‌ها: {player.matchesPlayed}</span>
           </div>
-          <div className="flex gap-2 font-mono">
+          <div className="flex gap-2 font-mono text-[11px]">
             <span className="text-emerald-400">{player.gamesWon}ب</span>
             <span className="text-slate-400">{player.gamesDrew}م</span>
-            <span className="text-rose-400">{player.gamesLost}ب</span>
+            <span className="text-rose-400">{player.gamesLost}ش</span>
           </div>
         </div>
       </div>

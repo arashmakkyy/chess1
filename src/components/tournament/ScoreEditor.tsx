@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Match, Player, GameResult } from '../../types';
 import { PlayerAvatar } from '../player/PlayerAvatar';
-import { Button } from '../common/Button';
-import { Card } from '../common/Card';
-import { X, Calendar, Flame, Swords, ShieldAlert, Check } from 'lucide-react';
+import { GroupBadge } from '../player/GroupBadge';
+import { Swords, Check, X, ShieldAlert, Award, Sparkles } from 'lucide-react';
 
 interface ScoreEditorProps {
   match: Match;
@@ -29,386 +28,244 @@ export const ScoreEditor: React.FC<ScoreEditorProps> = ({
   onSave,
   onClose
 }) => {
-  const p1 = players.find(p => p.id === match.player1Id);
-  const p2 = players.find(p => p.id === match.player2Id);
+  const p1 = players.find((p) => p.id === match.player1Id);
+  const p2 = players.find((p) => p.id === match.player2Id);
 
-  // States for game scores
-  const [g1, setG1] = useState<GameResult>(match.game1Result);
-  const [g2, setG2] = useState<GameResult>(match.game2Result);
-  const [g3, setG3] = useState<GameResult>(match.game3Result);
+  const [selectedResult, setSelectedResult] = useState<GameResult>(
+    match.game1Result !== 'PENDING' ? match.game1Result : 'P1_WIN'
+  );
 
-  // Auto-reset when match changes
-  useEffect(() => {
-    setG1(match.game1Result);
-    setG2(match.game2Result);
-    setG3(match.game3Result);
-  }, [match]);
+  // For playoffs tie-breaker winner
+  const [tiebreakerWinner, setTiebreakerWinner] = useState<'P1' | 'P2'>('P1');
 
   if (!p1 || !p2) return null;
 
-  // Let's calculate if Game 3 is unlocked/required based on Game 1 and Game 2 results
-  const checkTieBreakerRequired = () => {
-    if (g1 === 'PENDING' || g2 === 'PENDING') return false;
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
 
-    // Cases for tie-breaker:
-    // Case 1: Game 1 DRAW and Game 2 DRAW => tie
-    if (g1 === 'DRAW' && g2 === 'DRAW') return true;
-    
-    // Case 2: P1 wins one, P2 wins one => tie (1-1)
-    if (
-      (g1 === 'P1_WIN' && g2 === 'P2_WIN') ||
-      (g1 === 'P2_WIN' && g2 === 'P1_WIN')
-    ) {
-      return true;
+    if (match.isPlayoff && selectedResult === 'DRAW') {
+      // In playoffs with a draw, game1 is DRAW and game2 is won by the tiebreaker winner
+      const g2Result: GameResult = tiebreakerWinner === 'P1' ? 'P1_WIN' : 'P2_WIN';
+      onSave(match.id, 'DRAW', g2Result, 'PENDING', match.isPlayoff);
+    } else {
+      onSave(match.id, selectedResult, 'PENDING', 'PENDING', match.isPlayoff);
     }
 
-    return false;
+    onClose();
   };
 
-  const isTieBreaker = checkTieBreakerRequired();
-
-  // If tie-breaker is NOT required, set g3 back to PENDING automatically
-  useEffect(() => {
-    if (!isTieBreaker) {
-      setG3('PENDING');
-    }
-  }, [isTieBreaker]);
-
-  // Handle Save
-  const handleSaveClick = () => {
+  const getStageName = () => {
     if (match.isPlayoff) {
-      if (g1 === 'PENDING' || g2 === 'PENDING') {
-        alert('لطفاً امتیاز تمام راندهای اصلی را ثبت کنید.');
-        return;
-      }
-      if (isTieBreaker && g3 === 'PENDING') {
-        alert('بازی مساوی شده است! ثبت نتیجه دست سوم (بازی حذفی/تای‌بریک) الزامی است.');
-        return;
-      }
-      onSave(match.id, g1, g2, isTieBreaker ? g3 : 'PENDING', true);
-    } else {
-      if (g1 === 'PENDING') {
-        alert('لطفاً نتیجه بازی را انتخاب کنید.');
-        return;
-      }
-      if (match.matchType === 'tiebreaker' && g1 === 'DRAW') {
-        alert('مسابقه تساوی‌شکن اضطراری الزامی است که برنده داشته باشد تا بن‌بست شکسته شود!');
-        return;
-      }
-      onSave(match.id, g1, 'PENDING', 'PENDING', false);
+      if (match.playoffStage === 'semi_final_1') return 'نیمه‌نهایی ۱ (A1 vs B2)';
+      if (match.playoffStage === 'semi_final_2') return 'نیمه‌نهایی ۲ (B1 vs A2)';
+      if (match.playoffStage === 'final') return 'فینال قهرمانی لیگ';
+      if (match.playoffStage === 'third_place') return 'دیدار رده‌بندی مقام سوم';
+      return 'دیدار حذفی پلی‌آف';
     }
-  };
-
-  // Helper score badges
-  const getP1Score = () => {
-    if (match.isPlayoff) {
-      let pts = 0;
-      if (g1 === 'P1_WIN') pts += 1;
-      if (g1 === 'DRAW') pts += 0.5;
-      if (g2 === 'P1_WIN') pts += 1;
-      if (g2 === 'DRAW') pts += 0.5;
-      if (isTieBreaker && g3 === 'P1_WIN') pts += 1;
-      return pts;
-    } else {
-      if (g1 === 'P1_WIN') return 1;
-      if (g1 === 'DRAW') return 0.5;
-      return 0;
-    }
-  };
-
-  const getP2Score = () => {
-    if (match.isPlayoff) {
-      let pts = 0;
-      if (g1 === 'P2_WIN') pts += 1;
-      if (g1 === 'DRAW') pts += 0.5;
-      if (g2 === 'P2_WIN') pts += 1;
-      if (g2 === 'DRAW') pts += 0.5;
-      if (isTieBreaker && g3 === 'P2_WIN') pts += 1;
-      return pts;
-    } else {
-      if (g1 === 'P2_WIN') return 1;
-      if (g1 === 'DRAW') return 0.5;
-      return 0;
-    }
+    return match.group ? `دور گروهی - گروه ${match.group === 'A' ? 'الف' : 'ب'}` : 'دور گروهی';
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md transition-all">
-      <Card
-        variant="glow-gold"
-        padding="none"
-        className="relative w-full max-w-xl overflow-hidden border border-amber-500/30 animate-in fade-in zoom-in-95 duration-200"
-      >
-        {/* Header decoration */}
-        <div className="h-1 bg-gradient-to-r from-amber-500 via-yellow-400 to-indigo-600" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+      <div className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl overflow-hidden">
+        {/* Ambient Top Glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-blue-500/15 rounded-full blur-2xl pointer-events-none" />
 
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 left-4 p-2 rounded-xl text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 transition-colors cursor-pointer"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Form Body */}
-        <div className="p-6">
-          {/* Header Info */}
-          <div className="flex items-center gap-3 border-b border-zinc-900 pb-5 mb-6 text-right">
-            <div className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-400">
-              <Calendar className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">
-                  بازی روز {match.dayNumber} - {match.weekdayStr}
-                </span>
-                {match.isPlayoff && (
-                  <span className="text-xs text-fuchsia-400 font-bold bg-fuchsia-500/10 px-2 py-0.5 rounded-full tracking-wider">
-                    {match.playoffType === 'final' ? 'مسابقه فینال' : 'مسابقه رده‌بندی سومی/چهارمی'}
-                  </span>
-                )}
-              </div>
-              <h3 className="text-base font-extrabold text-zinc-100 mt-1">
-                ثبت و ویرایش نتایج مسابقه شطرنج
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base md:text-lg font-black text-slate-100">
+                ثبت نتیجه نبرد روز {match.dayNumber}
               </h3>
+              {match.group && <GroupBadge group={match.group} />}
             </div>
-          </div>
-
-          {/* Versus Header */}
-          <div className="flex items-center justify-between bg-zinc-900/40 border border-zinc-800/40 rounded-2xl p-4 mb-6">
-            <div className="flex flex-col items-center flex-1 text-center">
-              <PlayerAvatar name={p1.name} size="md" className="mb-2" />
-              <span className="text-sm font-extrabold text-zinc-200">{p1.name}</span>
-              <span className="text-xs text-zinc-500 font-bold font-mono mt-1">سفید / سیاه</span>
-            </div>
-
-            <div className="flex flex-col items-center px-4">
-              <span className="text-xs font-bold text-zinc-500 flex items-center gap-1">
-                <Swords className="w-3.5 h-3.5" />
-                <span>نتیجه بازی</span>
-              </span>
-              <div className="flex items-center gap-3 mt-2 font-mono text-2xl font-black">
-                <span className="text-zinc-200">{getP1Score()}</span>
-                <span className="text-zinc-600 font-normal">:</span>
-                <span className="text-zinc-200">{getP2Score()}</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col items-center flex-1 text-center">
-              <PlayerAvatar name={p2.name} size="md" className="mb-2" />
-              <span className="text-sm font-extrabold text-zinc-200">{p2.name}</span>
-              <span className="text-xs text-zinc-500 font-bold font-mono mt-1">سیاه / سفید</span>
-            </div>
-          </div>
-
-          {/* Individual Games */}
-          <div className="space-y-4">
-            {!match.isPlayoff ? (
-              /* Group stage single-game selector */
-              <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-4">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-xs text-zinc-300 font-bold">
-                    {match.matchType === 'tiebreaker' ? 'نتیجه تک‌بازی تساوی‌شکن اضطراری' : 'نتیجه تک‌بازی مسابقه'}
-                  </span>
-                  {g1 !== 'PENDING' && <Check className="w-4 h-4 text-emerald-500 font-bold" />}
-                </div>
-                
-                {match.matchType === 'tiebreaker' && (
-                  <p className="text-[11px] text-amber-500 bg-amber-500/5 border border-amber-500/10 px-2.5 py-2 rounded-lg leading-relaxed mb-4 flex items-center gap-1.5">
-                    <Flame className="w-4 h-4 text-amber-500 animate-pulse shrink-0" />
-                    <span>همچنان که این بازی تساوی‌شکن است، باید حتماً یکی از دو بازیکن برنده شوند تا بن‌بست شکسته شود.</span>
-                  </p>
-                )}
-
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => setG1('P1_WIN')}
-                    className={`py-3 px-3 text-xs font-bold rounded-xl cursor-pointer transition-all border ${
-                      g1 === 'P1_WIN'
-                        ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    برد {p1.name}
-                  </button>
-                  {match.matchType !== 'tiebreaker' ? (
-                    <button
-                      onClick={() => setG1('DRAW')}
-                      className={`py-3 px-3 text-xs font-bold rounded-xl cursor-pointer transition-all border ${
-                        g1 === 'DRAW'
-                          ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      مساوی شد
-                    </button>
-                  ) : (
-                    <div className="py-3 px-3 text-xs font-mono font-medium rounded-xl border border-dashed border-zinc-800 text-zinc-650 bg-zinc-950 flex items-center justify-center">
-                      محدودیت تساوی
-                    </div>
-                  )}
-                  <button
-                    onClick={() => setG1('P2_WIN')}
-                    className={`py-3 px-3 text-xs font-bold rounded-xl cursor-pointer transition-all border ${
-                      g1 === 'P2_WIN'
-                        ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    برد {p2.name}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* Playoff series best of 3 selectors */
-              <>
-                {/* Game 1 Selector */}
-                <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-3">
-                  <div className="flex justify-between items-center mb-2.5">
-                    <span className="text-xs text-zinc-400 font-bold">دست اول بازی (اصلی)</span>
-                    {g1 !== 'PENDING' && <Check className="w-4 h-4 text-emerald-500" />}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => setG1('P1_WIN')}
-                      className={`py-2 px-3 text-xs font-bold rounded-lg cursor-pointer transition-all border ${
-                        g1 === 'P1_WIN'
-                          ? 'bg-amber-500/25 border-amber-500 text-amber-300'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      برد {p1.name}
-                    </button>
-                    <button
-                      onClick={() => setG1('DRAW')}
-                      className={`py-2 px-3 text-xs font-bold rounded-lg cursor-pointer transition-all border ${
-                        g1 === 'DRAW'
-                          ? 'bg-indigo-500/25 border-indigo-500 text-indigo-300'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      مساوی دست
-                    </button>
-                    <button
-                      onClick={() => setG1('P2_WIN')}
-                      className={`py-2 px-3 text-xs font-bold rounded-lg cursor-pointer transition-all border ${
-                        g1 === 'P2_WIN'
-                          ? 'bg-amber-500/25 border-amber-500 text-amber-300'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      برد {p2.name}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Game 2 Selector */}
-                <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-3">
-                  <div className="flex justify-between items-center mb-2.5">
-                    <span className="text-xs text-zinc-400 font-bold">دست دوم بازی (اصلی)</span>
-                    {g2 !== 'PENDING' && <Check className="w-4 h-4 text-emerald-500" />}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => setG2('P1_WIN')}
-                      className={`py-2 px-3 text-xs font-bold rounded-lg cursor-pointer transition-all border ${
-                        g2 === 'P1_WIN'
-                          ? 'bg-amber-500/25 border-amber-500 text-amber-300'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      برد {p1.name}
-                    </button>
-                    <button
-                      onClick={() => setG2('DRAW')}
-                      className={`py-2 px-3 text-xs font-bold rounded-lg cursor-pointer transition-all border ${
-                        g2 === 'DRAW'
-                          ? 'bg-indigo-500/25 border-indigo-500 text-indigo-300'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      مساوی دست
-                    </button>
-                    <button
-                      onClick={() => setG2('P2_WIN')}
-                      className={`py-2 px-3 text-xs font-bold rounded-lg cursor-pointer transition-all border ${
-                        g2 === 'P2_WIN'
-                          ? 'bg-amber-500/25 border-amber-500 text-amber-300'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      برد {p2.name}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Game 3 Selector (Unlocked ONLY on Ties) */}
-                {isTieBreaker && (
-                  <div className="bg-amber-500/5 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)] rounded-xl p-4 relative overflow-hidden animate-in fade-in slide-in-from-top-3 duration-300">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
-                    <div className="flex items-center gap-2 mb-3">
-                      <Flame className="w-5 h-5 text-amber-500 animate-pulse" />
-                      <span className="text-xs text-amber-400 font-bold">دست سوم: راند سرنوشت‌ساز (تای‌بریک ویژه)</span>
-                    </div>
-                    <p className="text-[11px] text-zinc-400 leading-relaxed mb-4">
-                      امتیاز کل دو دست اصلی مساوی شده است. طبق قوانین، دست سوم برای مشخص کردن برنده نهایی فیکسچر بازی می‌شود و این دست نباید مساوی داشته باشد.
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => setG3('P1_WIN')}
-                        className={`py-3 px-4 text-xs font-bold rounded-xl cursor-pointer transition-all border ${
-                          g3 === 'P1_WIN'
-                            ? 'bg-amber-500 hover:bg-amber-400 border-amber-400 text-black shadow-md shadow-amber-500/10'
-                            : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        قهرمانی نهایی: {p1.name}
-                      </button>
-                      <button
-                        onClick={() => setG3('P2_WIN')}
-                        className={`py-3 px-4 text-xs font-bold rounded-xl cursor-pointer transition-all border ${
-                          g3 === 'P2_WIN'
-                            ? 'bg-amber-500 hover:bg-amber-400 border-amber-400 text-black shadow-md shadow-amber-500/10'
-                            : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        قهرمانی نهایی: {p2.name}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Notification Info */}
-          <div className="mt-6 flex items-start gap-2 bg-zinc-950 p-3 rounded-xl border border-zinc-900">
-            <ShieldAlert className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-zinc-500 leading-relaxed">
-              با ذخیره این جدول، مابقی آمارها از جمله تفاضل بردهای انفرادی، درصد برد بازیکنان و جدول نمودارهای پیشرفته اتوماتیک آپدیت و در حافظه مرورگر شما بازنویسی می‌شوند.
+            <p className="text-xs text-slate-400 mt-1 font-mono">
+              {getStageName()} | {match.weekdayStr} {match.dateStr}
             </p>
           </div>
 
-          {/* Action buttons */}
-          <div className="flex gap-3 mt-6">
-            <Button
-              variant="glow"
-              fullWidth
-              onClick={handleSaveClick}
-              disabled={
-                match.isPlayoff
-                  ? g1 === 'PENDING' || g2 === 'PENDING' || (isTieBreaker && g3 === 'PENDING')
-                  : g1 === 'PENDING'
-              }
-            >
-              ذخیره تغییرات نتایج
-            </Button>
-            <Button variant="outline" onClick={onClose}>
-              انصراف
-            </Button>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Players Showcase */}
+        <div className="grid grid-cols-7 items-center bg-white/5 p-4 rounded-2xl border border-white/10 mb-6">
+          <div className="col-span-3 flex flex-col items-center text-center">
+            <PlayerAvatar name={p1.name} size="md" className="mb-2" />
+            <span className="text-xs md:text-sm font-extrabold text-slate-100 truncate max-w-[120px]">
+              {p1.name}
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono mt-0.5">مهره سفید</span>
+          </div>
+
+          <div className="col-span-1 flex flex-col items-center justify-center">
+            <Swords className="w-5 h-5 text-slate-400" />
+            <span className="text-[9px] font-bold text-slate-500 mt-1">VS</span>
+          </div>
+
+          <div className="col-span-3 flex flex-col items-center text-center">
+            <PlayerAvatar name={p2.name} size="md" className="mb-2" />
+            <span className="text-xs md:text-sm font-extrabold text-slate-100 truncate max-w-[120px]">
+              {p2.name}
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono mt-0.5">مهره سیاه</span>
           </div>
         </div>
-      </Card>
+
+        {/* Form Selection */}
+        <form onSubmit={handleFormSubmit} className="space-y-4">
+          <div className="space-y-2.5">
+            <label className="text-xs font-bold text-slate-300 block">
+              نتیجه بازی را مشخص کنید (تک‌بازی یک‌طرفه):
+            </label>
+
+            {/* Option 1: P1 WIN */}
+            <button
+              type="button"
+              onClick={() => setSelectedResult('P1_WIN')}
+              className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer ${
+                selectedResult === 'P1_WIN'
+                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.15)]'
+                  : 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    selectedResult === 'P1_WIN'
+                      ? 'border-blue-400 bg-blue-500 text-white'
+                      : 'border-slate-500'
+                  }`}
+                >
+                  {selectedResult === 'P1_WIN' && <Check className="w-3.5 h-3.5" />}
+                </div>
+                <span className="font-bold text-xs md:text-sm">
+                  برد {p1.name} (۱ - ۰)
+                </span>
+              </div>
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                +۱ امتیاز به {p1.name}
+              </span>
+            </button>
+
+            {/* Option 2: DRAW */}
+            <button
+              type="button"
+              onClick={() => setSelectedResult('DRAW')}
+              className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer ${
+                selectedResult === 'DRAW'
+                  ? 'bg-purple-500/20 border-purple-500/50 text-purple-200 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                  : 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    selectedResult === 'DRAW'
+                      ? 'border-purple-400 bg-purple-500 text-white'
+                      : 'border-slate-500'
+                  }`}
+                >
+                  {selectedResult === 'DRAW' && <Check className="w-3.5 h-3.5" />}
+                </div>
+                <span className="font-bold text-xs md:text-sm">
+                  تساوی (۰.۵ - ۰.۵)
+                </span>
+              </div>
+              <span className="text-[11px] font-mono text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded">
+                ۰.۵ امتیاز به هر دو
+              </span>
+            </button>
+
+            {/* Option 3: P2 WIN */}
+            <button
+              type="button"
+              onClick={() => setSelectedResult('P2_WIN')}
+              className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer ${
+                selectedResult === 'P2_WIN'
+                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.15)]'
+                  : 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    selectedResult === 'P2_WIN'
+                      ? 'border-blue-400 bg-blue-500 text-white'
+                      : 'border-slate-500'
+                  }`}
+                >
+                  {selectedResult === 'P2_WIN' && <Check className="w-3.5 h-3.5" />}
+                </div>
+                <span className="font-bold text-xs md:text-sm">
+                  برد {p2.name} (۰ - ۱)
+                </span>
+              </div>
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                +۱ امتیاز به {p2.name}
+              </span>
+            </button>
+          </div>
+
+          {/* Playoff Tie-Breaker Sub-Selection if Draw in Playoffs */}
+          {match.isPlayoff && selectedResult === 'DRAW' && (
+            <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl mt-4 space-y-3">
+              <div className="flex items-center gap-2 text-amber-300 text-xs font-bold">
+                <ShieldAlert className="w-4 h-4" />
+                <span>در مرحله حذفی تساوی نهایی ممکن نیست. برنده دست تای‌بریک:</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTiebreakerWinner('P1')}
+                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    tiebreakerWinner === 'P1'
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-md font-black'
+                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                  }`}
+                >
+                  برد {p1.name} در بلیتس/آرماگدون
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTiebreakerWinner('P2')}
+                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    tiebreakerWinner === 'P2'
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-md font-black'
+                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                  }`}
+                >
+                  برد {p2.name} در بلیتس/آرماگدون
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Footer Action Buttons */}
+          <div className="pt-4 border-t border-white/10 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+            >
+              انصراف
+            </button>
+
+            <button
+              type="submit"
+              className="px-6 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs transition-all shadow-lg flex items-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-4 h-4 text-blue-600" />
+              <span>ذخیره نتیجه رسمی</span>
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

@@ -3,676 +3,772 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { Player, Match, TournamentState, GameResult } from './types';
-import { createRoundRobinSchedule, getNextSunday, formatPersianDate, generateMatchDates } from './utils/scheduler';
-import { Button } from './components/common/Button';
-import { Card } from './components/common/Card';
+import React, { useState } from 'react';
+import {
+  Player,
+  Match,
+  TournamentState,
+  GameResult,
+  GroupIdentifier
+} from './types';
+import {
+  createTwoGroupSingleRoundRobinSchedule,
+  getNextSunday
+} from './utils/scheduler';
+import { useTournamentSync } from './hooks/useTournamentSync';
+import { useAdminAuth } from './hooks/useAdminAuth';
+import { HeaderControls } from './components/common/HeaderControls';
+import { AdminPasscodeModal } from './components/auth/AdminPasscodeModal';
+import { AdminBannerNotice } from './components/auth/AdminBannerNotice';
 import { HeroSection } from './components/HeroSection';
 import { Leaderboard } from './components/tournament/Leaderboard';
-import { PlayerCard } from './components/player/PlayerCard';
 import { FixtureList } from './components/tournament/FixtureList';
 import { PlayoffBracket } from './components/tournament/PlayoffBracket';
 import { Podium } from './components/tournament/Podium';
-import { StatsDashboard } from './components/analytics/StatsDashboard';
 import { ScoreEditor } from './components/tournament/ScoreEditor';
+import { StatsDashboard } from './components/analytics/StatsDashboard';
 import { AiNewspaper } from './components/tournament/AiNewspaper';
-import { Trophy, RefreshCw, Calendar, TrendingUp, HelpCircle, Star, Sparkles, Swords, LayoutDashboard } from 'lucide-react';
+import { PlayerCard } from './components/player/PlayerCard';
+import {
+  Trophy,
+  CalendarDays,
+  GitBranch,
+  BarChart3,
+  Newspaper,
+  Users
+} from 'lucide-react';
 
-const LOCAL_STORAGE_KEY = 'chess_league_state_v2';
+export function App() {
+  const [activeTab, setActiveTab] = useState<
+    'tables' | 'fixtures' | 'playoffs' | 'players' | 'stats' | 'newspaper'
+  >('tables');
 
-const initialPlayers: Player[] = [
-  { id: 'arash', name: 'آرش', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'arash' },
-  { id: 'alireza', name: 'علیرضا', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'alireza' },
-  { id: 'mohammad', name: 'محمد', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'mohammad' },
-  { id: 'mehrdad', name: 'مهرداد', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'mehrdad' }
-];
+  const [editingMatch, setEditingMatch] = useState<Match | null>(null);
 
-// Dynamically updates/adds/removes the Tiebreaker matches if group stage legs are completed and tied in head-to-head score
-const updateTiebreakers = (matchesList: Match[], playersList: Player[]): Match[] => {
-  const regularMatches = matchesList.filter(m => !m.isPlayoff && m.matchType !== 'tiebreaker');
-  const existingTiebreakers = matchesList.filter(m => !m.isPlayoff && m.matchType === 'tiebreaker');
-  
-  const playerIds = playersList.map(p => p.id);
-  const pairings: Array<[string, string]> = [];
-  for (let i = 0; i < playerIds.length; i++) {
-    for (let j = i + 1; j < playerIds.length; j++) {
-      pairings.push([playerIds[i], playerIds[j]]);
+  const {
+    state,
+    setState,
+    syncStatus,
+    lastSyncTime,
+    refreshFromServer,
+    resetTournament
+  } = useTournamentSync();
+
+  const {
+    isAdmin,
+    isAuthModalOpen,
+    actionTitle,
+    login,
+    logout,
+    requireAdmin,
+    cancelAuth,
+    openLoginModal
+  } = useAdminAuth();
+
+  // Web Audio Synthesizer for celebration sound
+  const playVictorySound = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.3);
+
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.5);
+    } catch (e) {
+      // Audio context might be restricted before interaction
     }
-  }
-
-  const newTiebreakers: Match[] = [];
-
-  pairings.forEach(([pA, pB]) => {
-    // Find the Leg 1 and Leg 2 regular matches between pA and pB
-    const legs = regularMatches.filter(m => 
-      (m.player1Id === pA && m.player2Id === pB) || (m.player1Id === pB && m.player2Id === pA)
-    );
-
-    if (legs.length === 2 && legs[0].status === 'completed' && legs[1].status === 'completed') {
-      let pAPoints = 0;
-      let pBPoints = 0;
-
-      legs.forEach(leg => {
-        if (leg.winnerId === pA) pAPoints += 1;
-        else if (leg.winnerId === pB) pBPoints += 1;
-        else if (leg.game1Result === 'DRAW') {
-          pAPoints += 0.5;
-          pBPoints += 0.5;
-        }
-      });
-
-      if (pAPoints === pBPoints) {
-        // Tied overall in both legs! We require an emergency tiebreak match.
-        const existingTb = existingTiebreakers.find(m => 
-          (m.player1Id === pA && m.player2Id === pB) || (m.player1Id === pB && m.player2Id === pA)
-        );
-
-        if (existingTb) {
-          newTiebreakers.push(existingTb);
-        } else {
-          newTiebreakers.push({
-            id: `tiebreaker_${pA}_${pB}`,
-            player1Id: pA,
-            player2Id: pB,
-            dayNumber: 0,
-            dateStr: '',
-            weekdayStr: '',
-            game1Result: 'PENDING',
-            game2Result: 'PENDING',
-            game3Result: 'PENDING',
-            status: 'scheduled',
-            winnerId: null,
-            p1Points: 0,
-            p2Points: 0,
-            isPlayoff: false,
-            matchType: 'tiebreaker'
-          });
-        }
-      }
-    }
-  });
-
-  const combinedGroupStage = [...regularMatches, ...newTiebreakers];
-
-  const baseDate = new Date('2026-05-30T10:00:00Z');
-  const startSunday = getNextSunday(baseDate);
-  const matchDates = generateMatchDates(startSunday, combinedGroupStage.length);
-
-  return combinedGroupStage.map((match, index) => {
-    const dateInfo = matchDates[index];
-    return {
-      ...match,
-      dayNumber: index + 1,
-      dateStr: dateInfo.dateStr,
-      weekdayStr: dateInfo.weekdayStr
-    };
-  });
-};
-
-export default function App() {
-  const [state, setState] = useState<TournamentState>({
-    players: initialPlayers,
-    matches: [],
-    isStarted: false,
-    playoffStarted: false,
-    playoffMatches: {
-      final: null,
-      thirdPlace: null
-    }
-  });
-
-  const [activeTab, setActiveTab] = useState<'fixtures' | 'rankings' | 'playoffs' | 'analytics'>('fixtures');
-  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-
-  // Load from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setState(parsed);
-      } catch (e) {
-        console.error('Failed to parse saved tournament state', e);
-      }
-    }
-  }, []);
-
-  // Save to localStorage whenever state changes
-  const saveState = (newState: TournamentState) => {
-    setState(newState);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newState));
   };
 
-  // 1. Action: Start Tournament (Lottery Draw)
+  // Shuffle players into 2 balanced random groups of 5
+  const handleShuffleGroups = () => {
+    requireAdmin('قرعه‌کشی مجدد گروه‌ها', () => {
+      const shuffled = [...state.players].sort(() => Math.random() - 0.5);
+      const updatedPlayers = shuffled.map((player, index) => ({
+        ...player,
+        group: (index < 5 ? 'A' : 'B') as GroupIdentifier
+      }));
+
+      setState((prev) => ({
+        ...prev,
+        players: updatedPlayers
+      }));
+    });
+  };
+
+  // Start the tournament & generate the schedule
   const handleStartTournament = () => {
-    // Start matches from tomorrow (Sunday) - relative to current mock time 2026-05-30 (which is Sat)
-    const baseDate = new Date('2026-05-30T10:00:00Z');
-    const startSunday = getNextSunday(baseDate);
-    
-    // Create random double round-robin schedule
-    const matches = createRoundRobinSchedule(state.players, startSunday);
-    
-    // Reset player scores just in case
-    const resetPlayers = initialPlayers.map(p => ({ ...p }));
+    requireAdmin('شروع رسمی لیگ و ایجاد تقویم بازی‌ها', () => {
+      const nextSunday = getNextSunday(new Date());
+      const generatedMatches = createTwoGroupSingleRoundRobinSchedule(
+        state.players,
+        nextSunday
+      );
 
-    saveState({
-      players: resetPlayers,
-      matches,
-      isStarted: true,
-      playoffStarted: false,
-      playoffMatches: {
-        final: null,
-        thirdPlace: null
-      }
-    });
-  };
+      // Reset player scores
+      const resetPlayers = state.players.map((p) => ({
+        ...p,
+        matchesPlayed: 0,
+        matchesWon: 0,
+        matchesLost: 0,
+        gamesWon: 0,
+        gamesLost: 0,
+        gamesDrew: 0,
+        points: 0
+      }));
 
-  // 2. Action: Recalculate group-stage standing of players based on match scores
-  const recalculatePlayers = (matches: Match[]): Player[] => {
-    // Create deep copy of initial players
-    const updatedPlayers = initialPlayers.map(p => ({
-      ...p,
-      matchesPlayed: 0,
-      matchesWon: 0,
-      matchesLost: 0,
-      gamesWon: 0,
-      gamesLost: 0,
-      gamesDrew: 0,
-      points: 0
-    }));
-
-    // Go through all group stage matches that are completed
-    matches.filter(m => !m.isPlayoff && m.status === 'completed').forEach(match => {
-      const p1 = updatedPlayers.find(p => p.id === match.player1Id);
-      const p2 = updatedPlayers.find(p => p.id === match.player2Id);
-
-      if (p1 && p2) {
-        p1.matchesPlayed++;
-        p2.matchesPlayed++;
-
-        // Since each match is a single game:
-        if (match.game1Result === 'P1_WIN') {
-          p1.points += 1;
-          p1.matchesWon++;
-          p1.gamesWon++;
-          
-          p2.matchesLost++;
-          p2.gamesLost++;
-        } else if (match.game1Result === 'P2_WIN') {
-          p2.points += 1;
-          p2.matchesWon++;
-          p2.gamesWon++;
-          
-          p1.matchesLost++;
-          p1.gamesLost++;
-        } else if (match.game1Result === 'DRAW') {
-          p1.points += 0.5;
-          p2.points += 0.5;
-          p1.gamesDrew++;
-          p2.gamesDrew++;
-        }
-      }
-    });
-
-    return updatedPlayers;
-  };
-
-  // 3. Action: Handle saving score (both Group and Playoffs)
-  const handleSaveMatchScore = (
-    matchId: string,
-    g1: GameResult,
-    g2: GameResult,
-    g3: GameResult,
-    isPlayoff: boolean
-  ) => {
-    if (!isPlayoff) {
-      // 3a. Save Group stage match
-      const updatedMatchesRaw = state.matches.map(m => {
-        if (m.id === matchId) {
-          // Calculate individual match winner id
-          let winnerId: string | null = null;
-          let p1PointsAwarded = 0;
-          let p2PointsAwarded = 0;
-
-          if (g1 === 'P1_WIN') {
-            winnerId = m.player1Id;
-            p1PointsAwarded = 1;
-            p2PointsAwarded = 0;
-          } else if (g1 === 'P2_WIN') {
-            winnerId = m.player2Id;
-            p1PointsAwarded = 0;
-            p2PointsAwarded = 1;
-          } else if (g1 === 'DRAW') {
-            winnerId = null;
-            p1PointsAwarded = 0.5;
-            p2PointsAwarded = 0.5;
-          }
-
-          return {
-            ...m,
-            game1Result: g1,
-            game2Result: 'PENDING' as const,
-            game3Result: 'PENDING' as const,
-            status: 'completed' as const,
-            winnerId,
-            p1Points: p1PointsAwarded,
-            p2Points: p2PointsAwarded
-          };
-        }
-        return m;
-      });
-
-      // Recalculate and update tie-breakers dynamically
-      const updatedMatchesWithTiebreakers = updateTiebreakers(updatedMatchesRaw, state.players);
-
-      // Recalculate standings based on this finalized combined match list
-      const updatedPlayers = recalculatePlayers(updatedMatchesWithTiebreakers);
-
-      // Save state
-      saveState({
-        ...state,
-        matches: updatedMatchesWithTiebreakers,
-        players: updatedPlayers
-      });
-    } else {
-      // 3b. Save Playoff match
-      const pMatches = { ...state.playoffMatches };
-      let finalWinnerId: string | null = null;
-
-      if (pMatches.final && pMatches.final.id === matchId) {
-        let p1GamePoints = 0;
-        let p2GamePoints = 0;
-
-        if (g1 === 'P1_WIN') p1GamePoints += 1;
-        if (g1 === 'DRAW') { p1GamePoints += 0.5; p2GamePoints += 0.5; }
-        if (g1 === 'P2_WIN') p2GamePoints += 1;
-
-        if (g2 === 'P1_WIN') p1GamePoints += 1;
-        if (g2 === 'DRAW') { p1GamePoints += 0.5; p2GamePoints += 0.5; }
-        if (g2 === 'P2_WIN') p2GamePoints += 1;
-
-        if (p1GamePoints > p2GamePoints) {
-          finalWinnerId = pMatches.final.player1Id;
-        } else if (p2GamePoints > p1GamePoints) {
-          finalWinnerId = pMatches.final.player2Id;
-        } else {
-          if (g3 === 'P1_WIN') finalWinnerId = pMatches.final.player1Id;
-          else if (g3 === 'P2_WIN') finalWinnerId = pMatches.final.player2Id;
-        }
-
-        pMatches.final = {
-          ...pMatches.final,
-          game1Result: g1,
-          game2Result: g2,
-          game3Result: g3,
-          status: 'completed',
-          winnerId: finalWinnerId
-        };
-      }
-
-      if (pMatches.thirdPlace && pMatches.thirdPlace.id === matchId) {
-        let p1GamePoints = 0;
-        let p2GamePoints = 0;
-
-        if (g1 === 'P1_WIN') p1GamePoints += 1;
-        if (g1 === 'DRAW') { p1GamePoints += 0.5; p2GamePoints += 0.5; }
-        if (g1 === 'P2_WIN') p2GamePoints += 1;
-
-        if (g2 === 'P1_WIN') p1GamePoints += 1;
-        if (g2 === 'DRAW') { p1GamePoints += 0.5; p2GamePoints += 0.5; }
-        if (g2 === 'P2_WIN') p2GamePoints += 1;
-
-        if (p1GamePoints > p2GamePoints) {
-          finalWinnerId = pMatches.thirdPlace.player1Id;
-        } else if (p2GamePoints > p1GamePoints) {
-          finalWinnerId = pMatches.thirdPlace.player2Id;
-        } else {
-          if (g3 === 'P1_WIN') finalWinnerId = pMatches.thirdPlace.player1Id;
-          else if (g3 === 'P2_WIN') finalWinnerId = pMatches.thirdPlace.player2Id;
-        }
-
-        pMatches.thirdPlace = {
-          ...pMatches.thirdPlace,
-          game1Result: g1,
-          game2Result: g2,
-          game3Result: g3,
-          status: 'completed',
-          winnerId: finalWinnerId
-        };
-      }
-
-      saveState({
-        ...state,
-        playoffMatches: pMatches
-      });
-    }
-
-    setSelectedMatch(null);
-  };
-
-  // 3c. Swap two matches sequence in group-stage
-  const handleSwapMatches = (matchIdA: string, matchIdB: string) => {
-    const currentMatches = [...state.matches];
-    const indexA = currentMatches.findIndex(m => m.id === matchIdA);
-    const indexB = currentMatches.findIndex(m => m.id === matchIdB);
-
-    if (indexA !== -1 && indexB !== -1) {
-      const temp = currentMatches[indexA];
-      currentMatches[indexA] = currentMatches[indexB];
-      currentMatches[indexB] = temp;
-
-      // Update dates and day numbers
-      const updatedMatchesWithDates = updateTiebreakers(currentMatches, state.players);
-      const updatedPlayers = recalculatePlayers(updatedMatchesWithDates);
-
-      saveState({
-        ...state,
-        matches: updatedMatchesWithDates,
-        players: updatedPlayers
-      });
-    }
-  };
-
-  // 4. Action: Start Playoffs (Lock brackets)
-  const handleStartPlayoffs = () => {
-    // Sort final group phase standings to determine matchups
-    const sortedGroupStandings = [...state.players].sort((a, b) => {
-      if (b.points !== a.points) return b.points - a.points;
-      if (b.matchesWon !== a.matchesWon) return b.matchesWon - a.matchesWon;
-      return b.gamesWon - a.gamesWon;
-    });
-
-    const rank1 = sortedGroupStandings[0];
-    const rank2 = sortedGroupStandings[1];
-    const rank3 = sortedGroupStandings[2];
-    const rank4 = sortedGroupStandings[3];
-
-    // Dates for playoffs (played after all group stage and tiebreak matches)
-    const baseDate = new Date('2026-05-30T10:00:00Z');
-    const startSunday = getNextSunday(baseDate);
-    const totalGroupMatches = state.matches.length;
-    const allExpectedDates = generateMatchDates(startSunday, totalGroupMatches + 2);
-    
-    const thirdPlaceDateInfo = allExpectedDates[totalGroupMatches];
-    const finalDateInfo = allExpectedDates[totalGroupMatches + 1];
-
-    const thirdPlaceMatch: Match = {
-      id: 'playoff_third_place',
-      player1Id: rank3.id,
-      player2Id: rank4.id,
-      dayNumber: totalGroupMatches + 1,
-      dateStr: thirdPlaceDateInfo.dateStr,
-      weekdayStr: thirdPlaceDateInfo.weekdayStr,
-      game1Result: 'PENDING',
-      game2Result: 'PENDING',
-      game3Result: 'PENDING',
-      status: 'scheduled',
-      winnerId: null,
-      p1Points: 0,
-      p2Points: 0,
-      isPlayoff: true,
-      playoffType: 'third_place',
-      matchType: 'playoff'
-    };
-
-    const finalMatch: Match = {
-      id: 'playoff_final',
-      player1Id: rank1.id,
-      player2Id: rank2.id,
-      dayNumber: totalGroupMatches + 2,
-      dateStr: finalDateInfo.dateStr,
-      weekdayStr: finalDateInfo.weekdayStr,
-      game1Result: 'PENDING',
-      game2Result: 'PENDING',
-      game3Result: 'PENDING',
-      status: 'scheduled',
-      winnerId: null,
-      p1Points: 0,
-      p2Points: 0,
-      isPlayoff: true,
-      playoffType: 'final',
-      matchType: 'playoff'
-    };
-
-    saveState({
-      ...state,
-      playoffStarted: true,
-      playoffMatches: {
-        final: finalMatch,
-        thirdPlace: thirdPlaceMatch
-      }
-    });
-
-    setActiveTab('playoffs');
-  };
-
-  // 5. Action: Full reset
-  const handleResetTournament = () => {
-    if (confirm('آیا از شروع مجدد لیگ و حذف تمام برنامه بازی‌ها و نتایج اطمینان دارید؟')) {
-      const resetPlayers = initialPlayers.map(p => ({ ...p }));
-      saveState({
+      setState((prev) => ({
+        ...prev,
         players: resetPlayers,
-        matches: [],
-        isStarted: false,
+        matches: generatedMatches,
+        isStarted: true,
         playoffStarted: false,
         playoffMatches: {
+          semiFinal1: null,
+          semiFinal2: null,
           final: null,
           thirdPlace: null
         }
-      });
+      }));
+
       setActiveTab('fixtures');
+    });
+  };
+
+  // Recalculate standings from all completed matches
+  const recalculateStandings = (matches: Match[], players: Player[]): Player[] => {
+    const statsMap: Record<
+      string,
+      {
+        matchesPlayed: number;
+        matchesWon: number;
+        matchesLost: number;
+        gamesWon: number;
+        gamesLost: number;
+        gamesDrew: number;
+        points: number;
+      }
+    > = {};
+
+    players.forEach((p) => {
+      statsMap[p.id] = {
+        matchesPlayed: 0,
+        matchesWon: 0,
+        matchesLost: 0,
+        gamesWon: 0,
+        gamesLost: 0,
+        gamesDrew: 0,
+        points: 0
+      };
+    });
+
+    matches.forEach((m) => {
+      if (m.status === 'completed' && !m.isPlayoff) {
+        const p1Stats = statsMap[m.player1Id];
+        const p2Stats = statsMap[m.player2Id];
+
+        if (p1Stats && p2Stats) {
+          p1Stats.matchesPlayed += 1;
+          p2Stats.matchesPlayed += 1;
+
+          p1Stats.points += m.p1Points;
+          p2Stats.points += m.p2Points;
+
+          if (m.game1Result === 'P1_WIN') {
+            p1Stats.matchesWon += 1;
+            p1Stats.gamesWon += 1;
+            p2Stats.matchesLost += 1;
+            p2Stats.gamesLost += 1;
+          } else if (m.game1Result === 'P2_WIN') {
+            p2Stats.matchesWon += 1;
+            p2Stats.gamesWon += 1;
+            p1Stats.matchesLost += 1;
+            p1Stats.gamesLost += 1;
+          } else if (m.game1Result === 'DRAW') {
+            p1Stats.gamesDrew += 1;
+            p2Stats.gamesDrew += 1;
+          }
+        }
+      }
+    });
+
+    return players.map((p) => ({
+      ...p,
+      ...statsMap[p.id]
+    }));
+  };
+
+  // Unlock and setup Playoffs when group stage finishes or is activated
+  const setupPlayoffsIfNeeded = (updatedPlayers: Player[], currentMatches: Match[]) => {
+    const groupAPlayers = updatedPlayers
+      .filter((p) => p.group === 'A')
+      .sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.matchesWon !== a.matchesWon) return b.matchesWon - a.matchesWon;
+        return b.gamesWon - a.gamesWon;
+      });
+
+    const groupBPlayers = updatedPlayers
+      .filter((p) => p.group === 'B')
+      .sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.matchesWon !== a.matchesWon) return b.matchesWon - a.matchesWon;
+        return b.gamesWon - a.gamesWon;
+      });
+
+    const a1 = groupAPlayers[0];
+    const a2 = groupAPlayers[1];
+    const b1 = groupBPlayers[0];
+    const b2 = groupBPlayers[1];
+
+    if (!a1 || !a2 || !b1 || !b2) return;
+
+    const lastGroupMatch = currentMatches[currentMatches.length - 1];
+    const lastDayNumber = lastGroupMatch ? lastGroupMatch.dayNumber : 20;
+
+    // Semi Final 1: 1st of A vs 2nd of B (ضربدری)
+    const semiFinal1: Match = {
+      id: 'playoff_semi_1',
+      player1Id: a1.id,
+      player2Id: b2.id,
+      dayNumber: lastDayNumber + 1,
+      dateStr: 'روز بعد از گروهی',
+      weekdayStr: 'نیمه‌نهایی ۱',
+      game1Result: 'PENDING',
+      game2Result: 'PENDING',
+      game3Result: 'PENDING',
+      status: 'scheduled',
+      winnerId: null,
+      p1Points: 0,
+      p2Points: 0,
+      isPlayoff: true,
+      playoffStage: 'semi_final_1',
+      matchType: 'semi_final'
+    };
+
+    // Semi Final 2: 1st of B vs 2nd of A (ضربدری)
+    const semiFinal2: Match = {
+      id: 'playoff_semi_2',
+      player1Id: b1.id,
+      player2Id: a2.id,
+      dayNumber: lastDayNumber + 2,
+      dateStr: 'روز بعد از گروهی',
+      weekdayStr: 'نیمه‌نهایی ۲',
+      game1Result: 'PENDING',
+      game2Result: 'PENDING',
+      game3Result: 'PENDING',
+      status: 'scheduled',
+      winnerId: null,
+      p1Points: 0,
+      p2Points: 0,
+      isPlayoff: true,
+      playoffStage: 'semi_final_2',
+      matchType: 'semi_final'
+    };
+
+    // Grand Final Template
+    const final: Match = {
+      id: 'playoff_final',
+      player1Id: '',
+      player2Id: '',
+      dayNumber: lastDayNumber + 3,
+      dateStr: 'روز فینال',
+      weekdayStr: 'فینال قهرمانی',
+      game1Result: 'PENDING',
+      game2Result: 'PENDING',
+      game3Result: 'PENDING',
+      status: 'scheduled',
+      winnerId: null,
+      p1Points: 0,
+      p2Points: 0,
+      isPlayoff: true,
+      playoffStage: 'final',
+      matchType: 'final'
+    };
+
+    // 3rd Place Match Template
+    const thirdPlace: Match = {
+      id: 'playoff_third_place',
+      player1Id: '',
+      player2Id: '',
+      dayNumber: lastDayNumber + 3,
+      dateStr: 'روز رده‌بندی',
+      weekdayStr: 'دیدار رده‌بندی',
+      game1Result: 'PENDING',
+      game2Result: 'PENDING',
+      game3Result: 'PENDING',
+      status: 'scheduled',
+      winnerId: null,
+      p1Points: 0,
+      p2Points: 0,
+      isPlayoff: true,
+      playoffStage: 'third_place',
+      matchType: 'third_place'
+    };
+
+    setState((prev) => ({
+      ...prev,
+      playoffStarted: true,
+      playoffMatches: {
+        semiFinal1,
+        semiFinal2,
+        final,
+        thirdPlace
+      }
+    }));
+  };
+
+  // Save match score
+  const handleSaveScore = (
+    matchId: string,
+    game1: GameResult,
+    game2: GameResult,
+    game3: GameResult,
+    isPlayoff: boolean
+  ) => {
+    playVictorySound();
+
+    if (!isPlayoff) {
+      // Group Stage Match
+      const updatedMatches = state.matches.map((m) => {
+        if (m.id !== matchId) return m;
+
+        let p1Points = 0;
+        let p2Points = 0;
+        let winnerId: string | null = null;
+
+        if (game1 === 'P1_WIN') {
+          p1Points = 1;
+          p2Points = 0;
+          winnerId = m.player1Id;
+        } else if (game1 === 'P2_WIN') {
+          p1Points = 0;
+          p2Points = 1;
+          winnerId = m.player2Id;
+        } else if (game1 === 'DRAW') {
+          p1Points = 0.5;
+          p2Points = 0.5;
+          winnerId = null;
+        }
+
+        return {
+          ...m,
+          game1Result: game1,
+          p1Points,
+          p2Points,
+          winnerId,
+          status: 'completed' as const
+        };
+      });
+
+      const updatedPlayers = recalculateStandings(updatedMatches, state.players);
+
+      // Check if all 20 group matches are completed
+      const allGroupMatchesCompleted = updatedMatches.every(
+        (m) => m.status === 'completed'
+      );
+
+      setState((prev) => ({
+        ...prev,
+        matches: updatedMatches,
+        players: updatedPlayers
+      }));
+
+      // Automatically initialize playoffs if all group matches are done
+      if (allGroupMatchesCompleted && !state.playoffStarted) {
+        setupPlayoffsIfNeeded(updatedPlayers, updatedMatches);
+      }
+    } else {
+      // Playoff Match
+      const { semiFinal1, semiFinal2, final, thirdPlace } = state.playoffMatches;
+
+      let newSemi1 = semiFinal1 ? { ...semiFinal1 } : null;
+      let newSemi2 = semiFinal2 ? { ...semiFinal2 } : null;
+      let newFinal = final ? { ...final } : null;
+      let newThirdPlace = thirdPlace ? { ...thirdPlace } : null;
+
+      if (matchId === 'playoff_semi_1' && newSemi1) {
+        let winnerId: string = newSemi1.player1Id;
+        if (game1 === 'P1_WIN') winnerId = newSemi1.player1Id;
+        else if (game1 === 'P2_WIN') winnerId = newSemi1.player2Id;
+        else if (game1 === 'DRAW') {
+          winnerId = game2 === 'P1_WIN' ? newSemi1.player1Id : newSemi1.player2Id;
+        }
+
+        newSemi1 = {
+          ...newSemi1,
+          game1Result: game1,
+          game2Result: game2,
+          winnerId,
+          status: 'completed'
+        };
+      } else if (matchId === 'playoff_semi_2' && newSemi2) {
+        let winnerId: string = newSemi2.player1Id;
+        if (game1 === 'P1_WIN') winnerId = newSemi2.player1Id;
+        else if (game1 === 'P2_WIN') winnerId = newSemi2.player2Id;
+        else if (game1 === 'DRAW') {
+          winnerId = game2 === 'P1_WIN' ? newSemi2.player1Id : newSemi2.player2Id;
+        }
+
+        newSemi2 = {
+          ...newSemi2,
+          game1Result: game1,
+          game2Result: game2,
+          winnerId,
+          status: 'completed'
+        };
+      } else if (matchId === 'playoff_final' && newFinal) {
+        let winnerId: string = newFinal.player1Id;
+        if (game1 === 'P1_WIN') winnerId = newFinal.player1Id;
+        else if (game1 === 'P2_WIN') winnerId = newFinal.player2Id;
+        else if (game1 === 'DRAW') {
+          winnerId = game2 === 'P1_WIN' ? newFinal.player1Id : newFinal.player2Id;
+        }
+
+        newFinal = {
+          ...newFinal,
+          game1Result: game1,
+          game2Result: game2,
+          winnerId,
+          status: 'completed'
+        };
+      } else if (matchId === 'playoff_third_place' && newThirdPlace) {
+        let winnerId: string = newThirdPlace.player1Id;
+        if (game1 === 'P1_WIN') winnerId = newThirdPlace.player1Id;
+        else if (game1 === 'P2_WIN') winnerId = newThirdPlace.player2Id;
+        else if (game1 === 'DRAW') {
+          winnerId =
+            game2 === 'P1_WIN' ? newThirdPlace.player1Id : newThirdPlace.player2Id;
+        }
+
+        newThirdPlace = {
+          ...newThirdPlace,
+          game1Result: game1,
+          game2Result: game2,
+          winnerId,
+          status: 'completed'
+        };
+      }
+
+      // If both semi finals are completed, populate the Final & 3rd Place matches!
+      if (
+        newSemi1?.status === 'completed' &&
+        newSemi2?.status === 'completed' &&
+        newFinal &&
+        newThirdPlace
+      ) {
+        const winnerSemi1 = newSemi1.winnerId!;
+        const loserSemi1 =
+          newSemi1.player1Id === winnerSemi1 ? newSemi1.player2Id : newSemi1.player1Id;
+
+        const winnerSemi2 = newSemi2.winnerId!;
+        const loserSemi2 =
+          newSemi2.player1Id === winnerSemi2 ? newSemi2.player2Id : newSemi2.player1Id;
+
+        newFinal.player1Id = winnerSemi1;
+        newFinal.player2Id = winnerSemi2;
+
+        newThirdPlace.player1Id = loserSemi1;
+        newThirdPlace.player2Id = loserSemi2;
+      }
+
+      setState((prev) => ({
+        ...prev,
+        playoffMatches: {
+          semiFinal1: newSemi1,
+          semiFinal2: newSemi2,
+          final: newFinal,
+          thirdPlace: newThirdPlace
+        }
+      }));
     }
   };
 
-  const allGroupMatchesCompleted = 
-    state.matches.length > 0 && 
-    state.matches.every(m => m.status === 'completed');
+  // Swap matches if needed
+  const handleSwapMatches = (matchIdA: string, matchIdB: string) => {
+    requireAdmin('جابه‌جایی زمان برگزاری بازی‌ها', () => {
+      setState((prev) => {
+        const matchA = prev.matches.find((m) => m.id === matchIdA);
+        const matchB = prev.matches.find((m) => m.id === matchIdB);
 
-  const isPlayoffsCompleted = 
-    state.playoffStarted && 
-    state.playoffMatches.final?.status === 'completed' && 
-    state.playoffMatches.thirdPlace?.status === 'completed';
+        if (!matchA || !matchB) return prev;
+
+        const updatedMatches = prev.matches.map((m) => {
+          if (m.id === matchIdA) {
+            return {
+              ...m,
+              dayNumber: matchB.dayNumber,
+              dateStr: matchB.dateStr,
+              weekdayStr: matchB.weekdayStr
+            };
+          }
+          if (m.id === matchIdB) {
+            return {
+              ...m,
+              dayNumber: matchA.dayNumber,
+              dateStr: matchA.dateStr,
+              weekdayStr: matchA.weekdayStr
+            };
+          }
+          return m;
+        });
+
+        updatedMatches.sort((a, b) => a.dayNumber - b.dayNumber);
+
+        return {
+          ...prev,
+          matches: updatedMatches
+        };
+      });
+    });
+  };
+
+  // Reset entire tournament
+  const handleResetTournament = () => {
+    requireAdmin('بازنشانی کامل تورنمنت', () => {
+      if (
+        window.confirm(
+          'آیا از بازنشانی کامل لیگ و شروع مجدد با قرعه‌کشی جدید اطمینان دارید؟ تمام نتایج از سرور و حافظه پاک خواهند شد.'
+        )
+      ) {
+        resetTournament();
+        setActiveTab('tables');
+      }
+    });
+  };
 
   return (
-    <div className="min-h-screen text-slate-100 flex flex-col font-sans select-none pb-12 overflow-x-hidden relative">
-      {/* Background Decorative Elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-blue-600/15 rounded-full blur-[130px] pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[45%] h-[45%] bg-purple-600/15 rounded-full blur-[130px] pointer-events-none"></div>
-      
-      {/* Dynamic Top bar brand */}
-      <header className="sticky top-0 z-40 bg-white/5 backdrop-blur-md border-b border-white/10 px-4 md:px-10 py-4 flex items-center justify-between text-right">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-tr from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-            <Trophy className="w-5 h-5 text-white filter drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]" />
-          </div>
-          <span className="font-bold text-base md:text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">لیگ شطرنج شوالیه‌ها</span>
-        </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-20 select-none overflow-x-hidden">
+      {/* Top Ambient Light Accent */}
+      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none -z-10" />
 
-        {state.isStarted && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleResetTournament}
-              className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 text-slate-100 text-[11px] md:text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>ریست و قرعه‌کشی مجدد</span>
-            </button>
+      {/* Main Container */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        {/* Navigation Bar */}
+        <header className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-900/80 border border-white/10 rounded-2xl p-4 mb-4 backdrop-blur-xl sticky top-4 z-40 shadow-xl">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+              <Trophy className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-base md:text-lg font-black text-slate-100 tracking-tight">
+                  لیگ برتر شطرنج (فصل جدید ۱۰ نفره)
+                </h1>
+                <span className="text-[10px] font-extrabold bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-md">
+                  ۲ گروه ➔ حذفی ضربدری
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                سیستم همگام‌سازی ابری زنده با بک‌اند، فیکسچرها و پلی‌آف نیمه‌نهایی و فینال
+              </p>
+            </div>
           </div>
-        )}
-      </header>
 
-      {/* Main Container Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 md:px-8 py-6">
-        
-        {!state.isStarted ? (
-          /* Introduction landing phase with players cards and lottery triggers */
-          <HeroSection
-            players={state.players}
-            onStartTournament={handleStartTournament}
+          <HeaderControls
+            syncStatus={syncStatus}
+            lastSyncTime={lastSyncTime}
+            isAdmin={isAdmin}
+            onLoginClick={openLoginModal}
+            onLogoutClick={logout}
+            onRefresh={refreshFromServer}
+            onReset={handleResetTournament}
           />
-        ) : (
-          /* Main active state workspace dashboard */
-          <div className="space-y-8">
-            
-            {/* AI Generation Gen Z Live Newspaper Commentary Section */}
-            <AiNewspaper state={state} />
+        </header>
 
-            {/* Playoff Victory podium spotlight banner */}
-            {isPlayoffsCompleted && (
+        {/* Admin status notice banner */}
+        <AdminBannerNotice isAdmin={isAdmin} onOpenLogin={openLoginModal} />
+
+        {/* Hero Section */}
+        <HeroSection
+          players={state.players}
+          isStarted={state.isStarted}
+          onStartTournament={handleStartTournament}
+          onShuffleGroups={handleShuffleGroups}
+        />
+
+        {/* Podium if playoffs finished */}
+        {state.playoffMatches.final?.status === 'completed' &&
+          state.playoffMatches.thirdPlace?.status === 'completed' && (
+            <div className="mb-10">
               <Podium
                 players={state.players}
                 finalMatch={state.playoffMatches.final}
                 thirdPlaceMatch={state.playoffMatches.thirdPlace}
               />
-            )}
-
-            {/* If all group matches are done but playoffs are NOT started, show explicit unlock panel */}
-            {allGroupMatchesCompleted && !state.playoffStarted && (
-              <Card variant="glow-gold" className="border-amber-500/20 text-center py-8">
-                <Sparkles className="w-12 h-12 text-amber-400 mx-auto mb-3 filter drop-shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-bounce" />
-                <h2 className="text-xl font-bold text-zinc-100 mb-2">دور گروهی با موفقیت به پایان رسید!</h2>
-                <p className="text-xs text-zinc-400 max-w-md mx-auto mb-6 leading-relaxed">
-                  تمامی ۱۲ فیکسچر جدول مقدماتی ایفا شده و رتبه‌بندی نهایی معین گردید؛ آرش، علیرضا، محمد و مهرداد آماده فینال و بازی رده‌بندی سومی و چهارمی هستند. مرحله نهایی پلی‌آف را همین حالا استارت بزنید!
-                </p>
-                <Button
-                  variant="glow"
-                  onClick={handleStartPlayoffs}
-                  className="px-8 py-3 shadow-[0_0_20px_rgba(245,158,11,0.2)] font-black text-sm"
-                >
-                  ⚔️ شروع مرحله نهایی پلی‌آف حذفی
-                </Button>
-              </Card>
-            )}
-
-            {/* Dashboard Tabs & Navigation header */}
-            <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 backdrop-blur-md overflow-x-auto justify-start select-none">
-              
-              <button
-                onClick={() => setActiveTab('fixtures')}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
-                  activeTab === 'fixtures'
-                    ? 'bg-white/10 border border-white/10 text-white shadow-[0_0_12px_rgba(255,255,255,0.05)]'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Calendar className="w-4 h-4 text-blue-400" />
-                <span>برنامه و نتایج فیکسچرها</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('rankings')}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
-                  activeTab === 'rankings'
-                    ? 'bg-white/10 border border-white/10 text-white shadow-[0_0_12px_rgba(255,255,255,0.05)]'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <LayoutDashboard className="w-4 h-4 text-purple-400" />
-                <span>جدول رده‌بندی و بازیکنان</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('playoffs')}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
-                  activeTab === 'playoffs'
-                    ? 'bg-white/10 border border-white/10 text-white shadow-[0_0_12px_rgba(255,255,255,0.05)]'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Trophy className="w-4 h-4 text-yellow-400" />
-                <span>مرحله نهایی حذفی (پلی‌آف)</span>
-                {state.playoffStarted && !isPlayoffsCompleted && (
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('analytics')}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
-                  activeTab === 'analytics'
-                    ? 'bg-white/10 border border-white/10 text-white shadow-[0_0_12px_rgba(255,255,255,0.05)]'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <TrendingUp className="w-4 h-4 text-teal-400" />
-                <span>تحلیل آماری و نمودارها</span>
-              </button>
             </div>
+          )}
 
-            {/* Dashboard Workspace Rendering Views */}
-            <div className="min-h-[400px]">
-              
-              {activeTab === 'fixtures' && (
-                <FixtureList
-                  matches={state.matches}
-                  players={state.players}
-                  onEditScore={setSelectedMatch}
-                  onSwapMatches={handleSwapMatches}
-                />
-              )}
+        {/* Navigation Tabs */}
+        <div className="flex items-center justify-start gap-2 overflow-x-auto pb-3 mb-8 no-scrollbar border-b border-white/10">
+          <button
+            onClick={() => setActiveTab('tables')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition-all cursor-pointer shrink-0 ${
+              activeTab === 'tables'
+                ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+            }`}
+          >
+            <Trophy className="w-4 h-4" />
+            <span>جداول رده‌بندی ۲ گروه</span>
+          </button>
 
-              {activeTab === 'rankings' && (
-                <div className="space-y-8">
-                  {/* Standing table */}
-                  <Leaderboard players={state.players} />
-
-                  {/* Player Cards ledger */}
-                  <div>
-                    <h3 className="text-sm font-extrabold text-zinc-500 border-b border-zinc-900 pb-3 mb-6 pr-1">
-                      شناسنامه عملکرد فنی شوالیه‌ها
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                      {state.players.map((player, idx) => {
-                        // Find dynamic rank of this player
-                        const sorted = [...state.players].sort((a, b) => {
-                          if (b.points !== a.points) return b.points - a.points;
-                          if (b.matchesWon !== a.matchesWon) return b.matchesWon - a.matchesWon;
-                          return b.gamesWon - a.gamesWon;
-                        });
-                        const rank = sorted.findIndex(p => p.id === player.id) + 1;
-
-                        return (
-                          <PlayerCard
-                            key={player.id}
-                            player={player}
-                            rank={rank}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'playoffs' && (
-                <PlayoffBracket
-                  players={state.players}
-                  finalMatch={state.playoffMatches.final}
-                  thirdPlaceMatch={state.playoffMatches.thirdPlace}
-                  onEditScore={setSelectedMatch}
-                  onStartPlayoffs={handleStartPlayoffs}
-                />
-              )}
-
-              {activeTab === 'analytics' && (
-                <StatsDashboard players={state.players} />
-              )}
-            </div>
-
-            {/* Modal - Score editor */}
-            {selectedMatch && (
-              <ScoreEditor
-                match={selectedMatch}
-                players={state.players}
-                onSave={handleSaveMatchScore}
-                onClose={() => setSelectedMatch(null)}
-              />
+          <button
+            onClick={() => setActiveTab('fixtures')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition-all cursor-pointer shrink-0 ${
+              activeTab === 'fixtures'
+                ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4" />
+            <span>برنامه فیکسچرها</span>
+            {state.matches.length > 0 && (
+              <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded-full font-mono">
+                {state.matches.filter((m) => m.status === 'completed').length}/{state.matches.length}
+              </span>
             )}
-          </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('playoffs')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition-all cursor-pointer shrink-0 ${
+              activeTab === 'playoffs'
+                ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+            }`}
+          >
+            <GitBranch className="w-4 h-4" />
+            <span>درخت پلی‌آف و نیمه‌نهایی ضربدری</span>
+            <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded font-bold">
+              مهم
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('players')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition-all cursor-pointer shrink-0 ${
+              activeTab === 'players'
+                ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>کارت‌های ۱۰ بازیکن</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('stats')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition-all cursor-pointer shrink-0 ${
+              activeTab === 'stats'
+                ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>آمار تحلیلی و نمودارها</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('newspaper')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition-all cursor-pointer shrink-0 ${
+              activeTab === 'newspaper'
+                ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+            }`}
+          >
+            <Newspaper className="w-4 h-4" />
+            <span>روزنامه هوش مصنوعی</span>
+          </button>
+        </div>
+
+        {/* Tab Content Display */}
+        <main className="transition-all duration-300">
+          {activeTab === 'tables' && (
+            <div className="space-y-6">
+              <Leaderboard players={state.players} />
+            </div>
+          )}
+
+          {activeTab === 'fixtures' && (
+            <FixtureList
+              matches={state.matches}
+              players={state.players}
+              onEditScore={(match) =>
+                requireAdmin('ثبت و ویرایش نتیجه بازی', () => setEditingMatch(match))
+              }
+              onSwapMatches={handleSwapMatches}
+            />
+          )}
+
+          {activeTab === 'playoffs' && (
+            <PlayoffBracket
+              players={state.players}
+              playoffMatches={state.playoffMatches}
+              playoffStarted={state.playoffStarted}
+              onEditScore={(match) =>
+                requireAdmin('ثبت و ویرایش نتیجه مسابقه پلی‌آف', () => setEditingMatch(match))
+              }
+              onStartPlayoffs={() =>
+                requireAdmin('شروع مرحله حذفی و پلی‌آف', () =>
+                  setupPlayoffsIfNeeded(state.players, state.matches)
+                )
+              }
+            />
+          )}
+
+          {activeTab === 'players' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                {state.players.map((player, idx) => (
+                  <PlayerCard key={player.id} player={player} rank={idx + 1} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'stats' && (
+            <StatsDashboard players={state.players} matches={state.matches} />
+          )}
+
+          {activeTab === 'newspaper' && (
+            <AiNewspaper
+              players={state.players}
+              matches={state.matches}
+              playoffStarted={state.playoffStarted}
+            />
+          )}
+        </main>
+
+        {/* Score Editor Modal */}
+        {editingMatch && (
+          <ScoreEditor
+            match={editingMatch}
+            players={state.players}
+            onSave={handleSaveScore}
+            onClose={() => setEditingMatch(null)}
+          />
         )}
-      </main>
+
+        {/* Admin Passcode Modal */}
+        <AdminPasscodeModal
+          isOpen={isAuthModalOpen}
+          actionTitle={actionTitle}
+          onSuccess={login}
+          onCancel={cancelAuth}
+        />
+      </div>
     </div>
   );
 }
+
+export default App;
