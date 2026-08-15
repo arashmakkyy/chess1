@@ -188,12 +188,9 @@ export function useTournamentSync() {
       setSyncStatus('synced');
       setLastSyncTime(new Date());
     } else {
-      // If server has no data or fallback, sync our local state to server
-      const currentSaved = localStorage.getItem(STORAGE_KEY);
-      const stateToSync = currentSaved ? JSON.parse(currentSaved) : DEFAULT_INITIAL_STATE;
-      await saveLeagueToServer(stateToSync);
-      setSyncStatus('synced');
-      setLastSyncTime(new Date());
+      // Never upload local data when the server is unavailable: that could overwrite
+      // the canonical state with stale data from another device.
+      setSyncStatus('offline');
     }
   }, []);
 
