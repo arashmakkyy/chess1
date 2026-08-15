@@ -58,7 +58,8 @@ const DEFAULT_PLAYERS: PlayerData[] = [
   { id: 'p7', name: 'مصطفی خدابین', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'khodabin' },
   { id: 'p8', name: 'عرفان اسمائیلی', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'erfan' },
   { id: 'p9', name: 'مهدی قنبری', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'ghanbari' },
-  { id: 'p10', name: 'آروین توکلی', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'tavakoli' }
+  { id: 'p10', name: 'آروین توکلی', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'tavakoli' },
+  { id: 'p11', name: 'یونس جعفری', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'younes' }
 ];
 
 export const DEFAULT_TOURNAMENT_STATE: TournamentStateData = {
@@ -78,7 +79,7 @@ export async function loadTournamentState(): Promise<TournamentStateData> {
     const result = await get(STATE_PATH, { access: 'private' });
     if (result?.statusCode === 200) {
       const parsed = JSON.parse(await new Response(result.stream).text());
-      if (parsed?.players?.length === 10) {
+      if (parsed?.players?.length === 11) {
         const migrated = {
           ...parsed,
           players: parsed.players.map((player: PlayerData) =>
@@ -88,6 +89,18 @@ export async function loadTournamentState(): Promise<TournamentStateData> {
           )
         };
         memoryStore = migrated;
+        return migrated;
+      }
+      if (parsed?.players?.length === 10 && !parsed.players.some((player: PlayerData) => player.id === 'p11')) {
+        const migrated = {
+          ...parsed,
+          players: [
+            ...parsed.players,
+            { id: 'p11', name: 'یونس جعفری', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'younes' }
+          ]
+        };
+        memoryStore = migrated;
+        await saveTournamentState(migrated);
         return migrated;
       }
     }

@@ -142,6 +142,19 @@ export const INITIAL_PLAYERS: Player[] = [
     gamesDrew: 0,
     points: 0,
     avatarSeed: 'tavakoli'
+  },
+  {
+    id: 'p11',
+    name: 'یونس جعفری',
+    group: 'B',
+    matchesPlayed: 0,
+    matchesWon: 0,
+    matchesLost: 0,
+    gamesWon: 0,
+    gamesLost: 0,
+    gamesDrew: 0,
+    points: 0,
+    avatarSeed: 'younes'
   }
 ];
 
@@ -164,7 +177,7 @@ export function useTournamentSync() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.players && parsed.players.length === 10) {
+        if (parsed.players && parsed.players.length === 11) {
           return parsed;
         }
       } catch (e) {
@@ -182,7 +195,7 @@ export function useTournamentSync() {
   const loadStateFromServer = useCallback(async () => {
     setSyncStatus('syncing');
     const serverData = await fetchLeagueFromServer();
-    if (serverData && serverData.players && serverData.players.length === 10) {
+    if (serverData && serverData.players && serverData.players.length === 11) {
       setState(serverData);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(serverData));
       setSyncStatus('synced');
