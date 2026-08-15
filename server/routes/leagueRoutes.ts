@@ -1,9 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { loadTournamentState, saveTournamentState, resetTournamentState, TournamentStateData } from '../dataStore';
 
 export const leagueRouter = Router();
 
-leagueRouter.get('/', async (_req: Request, res: Response) => {
+leagueRouter.get('/', async (_req: ExpressRequest, res: ExpressResponse) => {
   try {
     const state = await loadTournamentState();
     res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -13,7 +14,7 @@ leagueRouter.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-leagueRouter.post('/', async (req: Request, res: Response) => {
+leagueRouter.post('/', async (req: ExpressRequest, res: ExpressResponse) => {
   try {
     const incomingState: TournamentStateData = req.body;
     if (!incomingState || !Array.isArray(incomingState.players) || incomingState.players.length !== 10) {
@@ -27,7 +28,7 @@ leagueRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-leagueRouter.post('/reset', async (_req: Request, res: Response) => {
+leagueRouter.post('/reset', async (_req: ExpressRequest, res: ExpressResponse) => {
   try {
     const resetState = await resetTournamentState();
     res.setHeader('Cache-Control', 'no-store, max-age=0');
