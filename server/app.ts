@@ -1,6 +1,6 @@
 import express from 'express';
-import { leagueRouter } from './routes/leagueRoutes';
-import { commentaryRouter } from './routes/commentaryRoutes';
+import { leagueRouter } from './routes/leagueRoutes.js';
+import { commentaryRouter } from './routes/commentaryRoutes.js';
 
 export function createApp() {
   const app = express();
