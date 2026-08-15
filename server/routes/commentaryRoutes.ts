@@ -1,9 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { GoogleGenAI } from '@google/genai';
 
 export const commentaryRouter = Router();
 
-commentaryRouter.post('/', async (req: Request, res: Response) => {
+commentaryRouter.post('/', async (req: ExpressRequest, res: ExpressResponse) => {
   try {
     const { players, matches, playoffStarted } = req.body;
 
