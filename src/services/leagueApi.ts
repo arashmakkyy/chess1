@@ -8,7 +8,7 @@ export interface ApiResponse<T> {
 
 export async function fetchLeagueFromServer(): Promise<TournamentState | null> {
   try {
-    const response = await fetch('/api/league');
+    const response = await fetch('/api/league', { cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`Server returned ${response.status}`);
     }
