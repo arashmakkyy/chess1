@@ -26,7 +26,7 @@ export const INITIAL_PLAYERS: Player[] = [
   },
   {
     id: 'p2',
-    name: 'علیرضا علی نژاد',
+    name: 'مهدیار علیپور',
     group: 'A',
     matchesPlayed: 0,
     matchesWon: 0,
