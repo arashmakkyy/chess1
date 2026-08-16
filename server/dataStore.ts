@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { get, put } from '@vercel/blob';
+import { head, put } from '@vercel/blob';
 
 dotenv.config({ path: '.env.development.local' });
 dotenv.config({ path: '.env.local' });
@@ -94,18 +94,33 @@ function isValidTournamentState(value: unknown): value is TournamentStateData {
 }
 
 export async function loadTournamentState(): Promise<TournamentStateData> {
-  const result = await get(STATE_PATH, { access: 'public' });
-  if (!result || result.statusCode !== 200) {
-    // A fresh Blob store has no state object yet. Initialize it once so the
-    // API becomes usable, while still failing loudly for malformed existing data.
-    if (!result) {
+  // Vercel Blob only allows this store to use `access: 'public'`, and public
+  // blobs are served through a CDN. The @vercel/blob `get()` helper can only
+  // bypass that CDN cache for *private* blobs, so a public read through it can
+  // return a stale copy right after a write — the "stuck offline / not real-time"
+  // symptom. To guarantee every read reflects the latest write, we resolve the
+  // blob's current URL via `head()` (which always hits the Blob metadata API,
+  // never the CDN) and then fetch that URL with a unique cache-busting query
+  // param and `cache: 'no-store'`, which forces a fresh origin fetch every time.
+  let meta;
+  try {
+    meta = await head(STATE_PATH, { access: 'public' });
+  } catch (error: any) {
+    if (error?.name === 'BlobNotFoundError' || error?.status === 404) {
+      // A fresh Blob store has no state object yet. Initialize it once so the
+      // API becomes usable, while still failing loudly for other errors.
       return saveTournamentState(DEFAULT_TOURNAMENT_STATE);
     }
-    throw new Error(`Tournament state blob not found at ${STATE_PATH}`);
+    throw new Error(`Could not read tournament state metadata from Blob: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   try {
-    const parsed = JSON.parse(await new Response(result.stream).text());
+    const cacheBustedUrl = `${meta.url}?t=${Date.now()}`;
+    const response = await fetch(cacheBustedUrl, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Blob fetch returned ${response.status}`);
+    }
+    const parsed = JSON.parse(await response.text());
     if (!isValidTournamentState(parsed)) {
       throw new Error('Tournament state blob has an invalid shape');
     }
