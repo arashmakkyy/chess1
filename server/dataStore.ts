@@ -72,53 +72,65 @@ export const DEFAULT_TOURNAMENT_STATE: TournamentStateData = {
 };
 
 const STATE_PATH = 'chess-league/tournament-state.json';
-let memoryStore: TournamentStateData = DEFAULT_TOURNAMENT_STATE;
+const BACKUP_PREFIX = 'chess-league/backups/';
+let memoryStore: TournamentStateData | null = null;
+
+function isValidTournamentState(value: unknown): value is TournamentStateData {
+  const state = value as TournamentStateData | null;
+  return Boolean(
+    state &&
+      Array.isArray(state.players) &&
+      state.players.length === 11 &&
+      Array.isArray(state.matches) &&
+      state.playoffMatches &&
+      typeof state.isStarted === 'boolean' &&
+      typeof state.playoffStarted === 'boolean'
+  );
+}
 
 export async function loadTournamentState(): Promise<TournamentStateData> {
-  try {
-    const result = await get(STATE_PATH, { access: 'private' });
-    if (result?.statusCode === 200) {
-      const parsed = JSON.parse(await new Response(result.stream).text());
-      if (parsed?.players?.length === 11) {
-        const migrated = {
-          ...parsed,
-          players: parsed.players.map((player: PlayerData) =>
-            player.id === 'p2' || player.name === 'علیرضا علی نژاد'
-              ? { ...player, id: 'p2', name: 'مهدیار علیپور', avatarSeed: 'mahdiar' }
-              : player
-          )
-        };
-        memoryStore = migrated;
-        return migrated;
-      }
-      if (parsed?.players?.length === 10 && !parsed.players.some((player: PlayerData) => player.id === 'p11')) {
-        const migrated = {
-          ...parsed,
-          players: [
-            ...parsed.players,
-            { id: 'p11', name: 'یونس جعفری', group: 'B', matchesPlayed: 0, matchesWon: 0, matchesLost: 0, gamesWon: 0, gamesLost: 0, gamesDrew: 0, points: 0, avatarSeed: 'younes' }
-          ]
-        };
-        memoryStore = migrated;
-        await saveTournamentState(migrated);
-        return migrated;
-      }
-    }
-  } catch (error) {
-    console.warn('Could not read tournament state from Blob:', error);
+  const result = await get(STATE_PATH, { access: 'private' });
+  if (!result || result.statusCode !== 200) {
+    throw new Error(`Tournament state blob not found at ${STATE_PATH}`);
   }
-  return memoryStore;
+
+  try {
+    const parsed = JSON.parse(await new Response(result.stream).text());
+    if (!isValidTournamentState(parsed)) {
+      throw new Error('Tournament state blob has an invalid shape');
+    }
+
+    const migrated = {
+      ...parsed,
+      players: parsed.players.map((player: PlayerData) =>
+        player.id === 'p2' || player.name === 'علیرضا علی نژاد'
+          ? { ...player, id: 'p2', name: 'مهدیار علیپور', avatarSeed: 'mahdiar' }
+          : player
+      )
+    };
+    memoryStore = migrated;
+    return migrated;
+  } catch (error) {
+    throw new Error(`Could not read tournament state from Blob: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export async function saveTournamentState(newState: TournamentStateData): Promise<TournamentStateData> {
   const updatedState = { ...newState, lastUpdated: new Date().toISOString() };
-  memoryStore = updatedState;
-  await put(STATE_PATH, JSON.stringify(updatedState), {
+  const payload = JSON.stringify(updatedState);
+  await put(`${BACKUP_PREFIX}${updatedState.lastUpdated}.json`, payload, {
+    access: 'private',
+    addRandomSuffix: false,
+    contentType: 'application/json',
+    allowOverwrite: false
+  });
+  await put(STATE_PATH, payload, {
     access: 'private',
     addRandomSuffix: false,
     contentType: 'application/json',
     allowOverwrite: true
   });
+  memoryStore = updatedState;
   return updatedState;
 }
 
