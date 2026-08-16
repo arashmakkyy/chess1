@@ -1,4 +1,9 @@
+import dotenv from 'dotenv';
 import { get, put } from '@vercel/blob';
+
+dotenv.config({ path: '.env.development.local' });
+dotenv.config({ path: '.env.local' });
+dotenv.config({ path: '.env' });
 
 export interface PlayerData {
   id: string;
@@ -89,8 +94,13 @@ function isValidTournamentState(value: unknown): value is TournamentStateData {
 }
 
 export async function loadTournamentState(): Promise<TournamentStateData> {
-  const result = await get(STATE_PATH, { access: 'private' });
+  const result = await get(STATE_PATH, { access: 'public' });
   if (!result || result.statusCode !== 200) {
+    // A fresh Blob store has no state object yet. Initialize it once so the
+    // API becomes usable, while still failing loudly for malformed existing data.
+    if (!result) {
+      return saveTournamentState(DEFAULT_TOURNAMENT_STATE);
+    }
     throw new Error(`Tournament state blob not found at ${STATE_PATH}`);
   }
 
@@ -119,13 +129,13 @@ export async function saveTournamentState(newState: TournamentStateData): Promis
   const updatedState = { ...newState, lastUpdated: new Date().toISOString() };
   const payload = JSON.stringify(updatedState);
   await put(`${BACKUP_PREFIX}${updatedState.lastUpdated}.json`, payload, {
-    access: 'private',
+    access: 'public',
     addRandomSuffix: false,
     contentType: 'application/json',
     allowOverwrite: false
   });
   await put(STATE_PATH, payload, {
-    access: 'private',
+    access: 'public',
     addRandomSuffix: false,
     contentType: 'application/json',
     allowOverwrite: true
